@@ -6,6 +6,7 @@ https://systemdesignschool.io/problems/webhook/solution?utm_source=neetcode
 
 https://youtu.be/-eMtcFqj8vI
 
+
 A URL shortener generates a unique short URL by combining **ID generation + encoding + collision handling + database mapping**.
 
 Typical flow:
