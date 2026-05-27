@@ -1803,3 +1803,170 @@ Elasticsearch
 ```
 
 Database alone can store everything, but at Google Docs scale it becomes difficult to achieve **low latency + high throughput + powerful search** using only one system.
+
+
+These are the kinds of follow-up questions interviewers commonly ask after a Google Docs HLD discussion. I've grouped them by topic because interviews often go progressively deeper.
+
+# Real-time collaboration
+
+1. Why choose **OT vs CRDT**?
+2. How do you handle two users editing the same position simultaneously?
+3. What happens if three users edit at the same time?
+4. How do you preserve ordering of operations?
+5. How do you avoid duplicate operations?
+6. How do you assign operation IDs?
+7. How do clients recover missed edits?
+8. How do you ensure all users eventually see the same document?
+9. How do you handle network delays causing out-of-order operations?
+10. How would you support offline editing?
+
+---
+
+# WebSocket questions
+
+1. Why use WebSockets instead of polling?
+2. Why use WebSockets instead of SSE?
+3. Why separate API Gateway and WebSocket Gateway?
+4. How do you manage millions of WebSocket connections?
+5. What happens if a WebSocket server crashes?
+6. How do you reconnect clients automatically?
+7. How do you preserve session state after reconnection?
+8. How do you handle heartbeat/ping messages?
+9. How do you prevent connection storms after outages?
+10. How do you route a user to the correct collaboration server?
+
+---
+
+# Scaling questions
+
+1. One collaboration server cannot handle all documents. How do you scale?
+2. Why partition using `hash(documentId)`?
+3. What if one document becomes extremely popular?
+4. How do you handle a document with 100k active users?
+5. How do you prevent hotspots?
+6. How do you load balance active documents?
+7. How do you scale globally across regions?
+8. How would you reduce cross-region latency?
+9. How do you migrate users during server scaling?
+10. How would you estimate server count?
+
+---
+
+# Storage questions
+
+1. Why not save the full document on every keystroke?
+2. Why use snapshots + deltas?
+3. How often should snapshots be created?
+4. How do you reconstruct document version 127?
+5. How do you compress document history?
+6. How do you store images and attachments?
+7. Why separate metadata DB and document storage?
+8. What DB would you choose and why?
+9. SQL vs NoSQL here?
+10. How would you archive inactive documents?
+
+---
+
+# Cache / Redis questions
+
+1. Why is Redis needed?
+2. What exactly should be cached?
+3. What cache eviction strategy would you use?
+4. What happens when Redis fails?
+5. How do you avoid cache inconsistency?
+6. Cache-aside vs write-through?
+7. How do you handle cache stampede?
+
+---
+
+# Kafka/event questions
+
+1. Why use Kafka?
+2. Why not direct service-to-service communication?
+3. What if Kafka is down?
+4. How do consumers avoid processing duplicates?
+5. How do you replay old events?
+6. At-most-once vs at-least-once vs exactly-once?
+7. How would you partition Kafka topics?
+
+---
+
+# Search questions
+
+1. Why use Elasticsearch?
+2. Why not use SQL `LIKE`?
+3. How does an inverted index work?
+4. How would autocomplete work?
+5. How would typo tolerance work?
+6. How do you index updates in real time?
+
+---
+
+# Reliability questions
+
+1. What happens if collaboration service crashes during editing?
+2. How do users avoid losing edits?
+3. How do you implement auto-save?
+4. How do you handle partial failures?
+5. How would disaster recovery work?
+6. Active-active vs active-passive?
+7. What backup strategy would you use?
+
+---
+
+# Security questions
+
+1. How do permissions work?
+2. View vs edit vs comment access?
+3. How do you validate access on WebSocket connections?
+4. How do you prevent unauthorized edits?
+5. How do you encrypt stored documents?
+6. How do you audit document changes?
+
+---
+
+# Estimation questions (very common)
+
+1. Assume **100M daily users**, estimate:
+
+   * QPS
+   * WebSocket connections
+   * Storage needed
+   * Network bandwidth
+
+2. Average document size = 500 KB:
+
+   * How much storage for 1B documents?
+
+3. Users type:
+
+   * 5 characters/sec
+   * 1M active users
+
+   Estimate:
+
+```text
+operations/sec
+network traffic
+server count
+```
+
+---
+
+# Very common "deep dive" question
+
+Interviewers often end with:
+
+> "Design Google Docs for 100 million concurrent users."
+
+That usually opens discussion on:
+
+```text
+Document sharding
+Hot document handling
+Geo-replication
+Distributed OT/CRDT
+Connection management
+Caching strategy
+Fault tolerance
+```
