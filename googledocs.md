@@ -1970,3 +1970,251 @@ Connection management
 Caching strategy
 Fault tolerance
 ```
+
+For Google Docs-style collaboration, **optimistic locking and pessimistic locking alone are usually not enough**. They work well for database rows, but real-time text editing has different behavior.
+
+## Why pessimistic lock is a poor fit
+
+Pessimistic locking:
+
+```text
+User A opens document
+      ↓
+Acquire lock
+      ↓
+User B tries editing
+      ↓
+Blocked
+```
+
+Result:
+
+```text
+User A: typing...
+User B: "Document locked"
+```
+
+This becomes frustrating for collaborative editing.
+
+Imagine 50 people editing:
+
+```text
+A edits paragraph 1
+B edits paragraph 2
+C edits title
+```
+
+With document-level lock:
+
+```text
+Only one person edits at a time
+```
+
+You lose the whole point of Google Docs.
+
+You could try **fine-grained locking**:
+
+```text
+Paragraph1 → Lock
+Paragraph2 → Lock
+Line3 → Lock
+```
+
+But then new problems appear:
+
+* lock management complexity
+* deadlocks
+* users waiting for locks
+* constant lock acquire/release
+
+---
+
+## Why optimistic locking alone is insufficient
+
+Optimistic locking works like:
+
+```text
+Document version = 10
+
+User A reads version 10
+User B reads version 10
+```
+
+Both edit.
+
+A saves:
+
+```text
+Version 10 → 11
+```
+
+B saves:
+
+```text
+Version mismatch detected
+```
+
+B gets:
+
+```text
+Conflict detected
+Please refresh
+```
+
+This is fine for forms:
+
+```text
+Edit profile
+Edit employee record
+```
+
+But terrible for live typing.
+
+Imagine typing:
+
+```text
+H
+e
+l
+l
+o
+```
+
+and every few keystrokes:
+
+```text
+Conflict detected
+```
+
+---
+
+## Why OT/CRDT works better
+
+Instead of:
+
+```text
+Reject conflicting edits
+```
+
+they do:
+
+```text
+Transform/Merge conflicting edits
+```
+
+Example:
+
+```text
+Initial: Hello
+
+A: Insert X at position 2
+B: Insert Y at position 2
+```
+
+OT:
+
+```text
+Transform B → position 3
+```
+
+Result:
+
+```text
+HeXYllo
+```
+
+No user interruption.
+
+---
+
+## What does GitHub use?
+
+[GitHub](https://github.com?utm_source=chatgpt.com) primarily uses **Git's version-control model**, which is different from Google Docs.
+
+Git typically follows something closer to:
+
+```text
+Read
+Edit locally
+Commit
+Merge later
+```
+
+Example:
+
+```text
+main branch
+
+User A → change line 10
+User B → change line 10
+```
+
+Later:
+
+```text
+git merge
+```
+
+Possible outcomes:
+
+### No conflict
+
+```text
+A changed line 10
+B changed line 20
+
+Auto merge
+```
+
+### Conflict
+
+```text
+<<<<<<< HEAD
+Hello World
+=======
+Hello AI
+>>>>>>> branch
+```
+
+Human resolves it.
+
+---
+
+Git's model behaves somewhat like **optimistic concurrency**:
+
+```text
+Assume conflicts are rare
+Resolve later
+```
+
+because code development usually tolerates:
+
+* delayed synchronization
+* explicit merges
+* manual conflict resolution
+
+---
+
+Google Docs and GitHub solve different problems:
+
+| Feature                    |              Google Docs |      Git/GitHub |
+| -------------------------- | -----------------------: | --------------: |
+| Sync                       |                Real time |    Commit based |
+| Conflict handling          |                OT / CRDT | Merge algorithm |
+| User waits?                |                       No |       Sometimes |
+| Manual conflict resolution |                     Rare |          Common |
+| Offline support            |                      Yes |             Yes |
+| Main goal                  | Continuous collaboration |  Source control |
+
+So if Google Docs used Git-style locking/merging:
+
+```text
+User A types "Hello"
+User B types "World"
+
+Conflict:
+Please resolve manually
+```
+
+That would feel very awkward for normal document editing.
+
