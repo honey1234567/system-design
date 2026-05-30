@@ -1565,3 +1565,877 @@ where Flink computes Top-K
 and Redis serves low-latency reads.
 ```
 <img width="508" height="274" alt="image" src="https://github.com/user-attachments/assets/acd59935-bfa0-4e21-8424-7cf90a360ee6" />
+
+# Spotify Top-K Songs System Design (Beginner → Advanced HLD)
+
+This is a very common system design interview question because it tests:
+
+* Real-time data ingestion
+* Stream processing
+* Top-K algorithms
+* Distributed systems
+* Scalability
+* Event processing
+
+Let's design:
+
+> "Show Top 100 songs globally, per country, and per city in near real time."
+
+---
+
+# 1. Requirements
+
+## Functional Requirements
+
+When a user plays a song:
+
+```text
+User A → Song X
+User B → Song X
+User C → Song Y
+```
+
+System should:
+
+* Count plays
+* Update rankings
+* Show Top 100 songs
+
+Examples:
+
+```text
+Global Top 100
+
+1. Song X
+2. Song Y
+3. Song Z
+```
+
+Country:
+
+```text
+Top 100 India
+Top 100 USA
+```
+
+City:
+
+```text
+Top 100 Delhi
+Top 100 Mumbai
+```
+
+---
+
+## Non Functional Requirements
+
+### Scale
+
+Spotify:
+
+```text
+600M+ users
+100M+ songs
+Millions of streams/minute
+```
+
+Assume:
+
+```text
+10 million song plays/minute
+```
+
+which is
+
+```text
+166K events/sec
+```
+
+Need:
+
+* High throughput
+* Low latency
+* Fault tolerance
+
+---
+
+# 2. High Level Architecture
+
+```text
+                Users
+                   |
+                   v
+          +----------------+
+          | Load Balancer  |
+          +----------------+
+                   |
+                   v
+          +----------------+
+          | Play Service   |
+          +----------------+
+                   |
+                   v
+          +----------------+
+          | Kafka          |
+          +----------------+
+                   |
+        -----------------------
+        |         |          |
+        v         v          v
+
+  Analytics   Billing   Recommendation
+
+        |
+        v
+
+   Flink / Spark
+        |
+        v
+
+     Redis
+        |
+        v
+
+      API
+        |
+        v
+
+    Mobile App
+```
+
+---
+
+# 3. Why Kafka?
+
+Every song play becomes an event.
+
+Example:
+
+```json
+{
+  "userId":"123",
+  "songId":"song_567",
+  "country":"India",
+  "city":"Delhi",
+  "timestamp":"..."
+}
+```
+
+Instead of directly updating DB:
+
+```text
+Play Service
+   |
+   +--> Kafka
+```
+
+Benefits:
+
+### Decoupling
+
+Many consumers can use same event.
+
+```text
+Kafka
+ |
+ +-- Recommendation
+ +-- Analytics
+ +-- Billing
+ +-- Top K
+```
+
+### Reliability
+
+Kafka persists data.
+
+Even if consumer dies:
+
+```text
+Consumer restart
+→ replay events
+```
+
+---
+
+# 4. Why Not Update DB Directly?
+
+Bad approach:
+
+```text
+Play Service
+     |
+     +--> MySQL update
+```
+
+For every play:
+
+```sql
+UPDATE songs
+SET count = count + 1
+```
+
+At
+
+```text
+166K updates/sec
+```
+
+database becomes bottleneck.
+
+---
+
+# 5. Stream Processing Layer
+
+We need real-time ranking.
+
+Use:
+
+* Apache Flink
+* Spark Streaming
+
+Most companies use:
+
+Apache Flink
+
+because latency is very low.
+
+---
+
+# 6. What Flink Does
+
+Input:
+
+```text
+Song A
+Song B
+Song A
+Song A
+Song C
+```
+
+Flink continuously counts.
+
+Output:
+
+```text
+Song A = 3
+Song B = 1
+Song C = 1
+```
+
+No batch processing.
+
+Everything happens live.
+
+---
+
+# 7. Top-K Problem
+
+Suppose:
+
+```text
+100 Million songs
+```
+
+Need:
+
+```text
+Top 100 songs
+```
+
+Naive:
+
+```text
+Sort all songs
+```
+
+Complexity:
+
+```text
+O(N log N)
+```
+
+Huge.
+
+Not feasible every second.
+
+---
+
+# 8. Min Heap Solution
+
+Keep only K songs.
+
+Example:
+
+```text
+K = 3
+```
+
+Counts:
+
+```text
+A=100
+B=90
+C=80
+D=200
+E=150
+```
+
+Maintain Min Heap.
+
+---
+
+### Step 1
+
+```text
+A=100
+
+Heap
+
+100
+```
+
+---
+
+### Step 2
+
+```text
+A=100
+B=90
+```
+
+Heap:
+
+```text
+ 90
+ /
+100
+```
+
+---
+
+### Step 3
+
+```text
+A=100
+B=90
+C=80
+```
+
+Heap:
+
+```text
+   80
+  /  \
+100  90
+```
+
+---
+
+### Step 4
+
+New:
+
+```text
+D=200
+```
+
+Compare with root.
+
+```text
+200 > 80
+```
+
+Remove 80.
+
+Heap:
+
+```text
+100
+90
+200
+```
+
+---
+
+Final:
+
+```text
+Top 3
+200
+100
+90
+```
+
+Complexity:
+
+```text
+O(log K)
+```
+
+instead of
+
+```text
+O(log N)
+```
+
+Huge improvement.
+
+---
+
+# 9. Why Redis?
+
+Users constantly ask:
+
+```text
+GET /top100
+```
+
+Cannot query Flink every time.
+
+Store result in Redis.
+
+```text
+Flink
+  |
+  v
+Redis
+```
+
+---
+
+Redis Sorted Set (ZSET):
+
+```text
+Key:
+top_songs_global
+```
+
+```text
+Score = play count
+
+Member = song id
+```
+
+Example:
+
+```text
+songA 1000
+songB 800
+songC 600
+```
+
+---
+
+# 10. Redis ZSET Commands
+
+Insert:
+
+```redis
+ZADD top_songs_global 1000 songA
+```
+
+Update:
+
+```redis
+ZINCRBY top_songs_global 1 songA
+```
+
+Get Top 10:
+
+```redis
+ZREVRANGE top_songs_global 0 9 WITHSCORES
+```
+
+Output:
+
+```text
+songA 1000
+songB 800
+songC 600
+```
+
+Complexity:
+
+```text
+O(log N)
+```
+
+---
+
+# 11. How Redis Finds Top K So Fast?
+
+Internally:
+
+```text
+HashMap
++
+Skip List
+```
+
+Structure:
+
+```text
+songA -> 1000
+songB -> 800
+songC -> 600
+```
+
+Skip List keeps sorted order.
+
+```text
+1000 -> 800 -> 600
+```
+
+Top K:
+
+```text
+Read last K nodes
+```
+
+Very fast.
+
+---
+
+# 12. Country Wise Top K
+
+Need:
+
+```text
+Top India
+Top USA
+Top Japan
+```
+
+Create separate ZSET.
+
+```text
+top_india
+top_usa
+top_japan
+```
+
+When event arrives:
+
+```json
+{
+ "song":"A",
+ "country":"India"
+}
+```
+
+Update:
+
+```redis
+ZINCRBY top_india 1 A
+```
+
+---
+
+# 13. City Wise Top K
+
+Keys:
+
+```text
+top_delhi
+top_mumbai
+top_bangalore
+```
+
+or
+
+```text
+top_city:delhi
+top_city:mumbai
+```
+
+---
+
+# 14. Why Flink Needed If Redis Can Do Top K?
+
+Most asked interview question.
+
+Many people say:
+
+```text
+Directly increment Redis.
+```
+
+Works at small scale.
+
+Problem:
+
+```text
+10 million events/minute
+```
+
+Need:
+
+### Windowing
+
+Top songs:
+
+```text
+Last 1 hour
+Last 24 hours
+Last week
+```
+
+Redis cannot efficiently compute event-time windows at massive scale.
+
+---
+
+### Late Events
+
+Suppose:
+
+```text
+Event generated at 1:00 PM
+Arrives at 1:10 PM
+```
+
+Flink handles:
+
+```text
+Watermarks
+Event Time
+```
+
+Redis doesn't.
+
+---
+
+### Aggregation
+
+Need:
+
+```text
+Global
+Country
+City
+Genre
+Artist
+```
+
+Flink computes all in one pipeline.
+
+---
+
+### Fault Tolerance
+
+Flink checkpoints state.
+
+```text
+Kafka offset
++
+Current counts
+```
+
+Can recover exactly.
+
+---
+
+# 15. Flink Internal Flow
+
+```text
+Kafka Event
+
+{
+ song:A
+ country:India
+ city:Delhi
+}
+```
+
+↓
+
+Partition by songId
+
+```text
+keyBy(songId)
+```
+
+↓
+
+Count plays
+
+```text
+A = 100
+```
+
+↓
+
+Update leaderboard
+
+↓
+
+Write to Redis
+
+---
+
+# 16. Partitioning in Kafka
+
+Without partitioning:
+
+```text
+Single consumer
+```
+
+Bottleneck.
+
+Use:
+
+```text
+Partition by songId
+```
+
+Example:
+
+```text
+Song A -> P1
+Song B -> P2
+Song C -> P3
+```
+
+Consumers:
+
+```text
+C1 reads P1
+C2 reads P2
+C3 reads P3
+```
+
+Parallel processing.
+
+---
+
+# 17. Hot Song Problem
+
+Imagine:
+
+```text
+Taylor Swift new release
+```
+
+90% traffic.
+
+All events:
+
+```text
+song123
+```
+
+go to one partition.
+
+Hot partition.
+
+---
+
+Solution: Key Salting
+
+Instead of:
+
+```text
+song123
+```
+
+Use:
+
+```text
+song123_1
+song123_2
+song123_3
+...
+song123_10
+```
+
+Spread across partitions.
+
+Later aggregate:
+
+```text
+sum(song123_*)
+```
+
+---
+
+# 18. Storage Layer
+
+Historical analytics stored in:
+
+* Apache Hive
+* Apache Iceberg
+* Apache Hudi
+
+Flow:
+
+```text
+Kafka
+  |
+  +--> Flink
+  |
+  +--> Data Lake
+```
+
+Used for:
+
+```text
+Top songs of 2025
+Monthly reports
+Analytics
+```
+
+---
+
+# Final HLD
+
+```text
+                 Users
+                    |
+                    v
+             +-------------+
+             | API Gateway |
+             +-------------+
+                    |
+                    v
+             +-------------+
+             | Play Service|
+             +-------------+
+                    |
+                    v
+             +-------------+
+             | Kafka       |
+             +-------------+
+                    |
+          ---------------------
+          |         |         |
+          v         v         v
+
+      Billing   Reco     Top-K
+
+                         |
+                         v
+                 +---------------+
+                 | Apache Flink  |
+                 +---------------+
+                         |
+                         v
+                 +---------------+
+                 | Redis ZSET    |
+                 +---------------+
+                         |
+                         v
+                 +---------------+
+                 | Ranking API   |
+                 +---------------+
+                         |
+                         v
+                     Users
+
+                         |
+                         v
+
+                Data Lake/Hive
+```
+
+
