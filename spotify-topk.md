@@ -2,6 +2,383 @@ https://www.youtube.com/watch?v=KOvDWEGVXec
 
 redis sorted set internally also creates heap(min heap)
 
+Excellent question. This is where many system design candidates get confused.
+
+**Short answer:**
+
+**No, Redis ZSET does not use a Min Heap internally.**
+Redis ZSET uses:
+
+```text
+Hash Table
+    +
+Skip List
+```
+
+So why did we discuss Min Heap?
+
+Because **Top-K is an algorithmic problem first**, and there are multiple ways to solve it.
+
+---
+
+# Approach 1: Min Heap (Classic Top-K Algorithm)
+
+Suppose you have:
+
+```text
+100 Million songs
+```
+
+Need:
+
+```text
+Top 100 songs
+```
+
+You are processing a stream:
+
+```text
+A=100
+B=200
+C=50
+D=300
+...
+```
+
+Keep only K elements:
+
+```text
+MinHeap size = 100
+```
+
+Complexity:
+
+```text
+Insert = O(log K)
+Memory = O(K)
+```
+
+This is commonly used in:
+
+* Coding interviews
+* Streaming algorithms
+* Flink operators
+* Spark jobs
+
+---
+
+## Example
+
+Need Top 3:
+
+```text
+A=100
+B=90
+C=80
+D=200
+```
+
+Heap:
+
+```text
+80
+90
+100
+```
+
+New value:
+
+```text
+200
+```
+
+Since:
+
+```text
+200 > 80
+```
+
+Remove 80.
+
+Heap becomes:
+
+```text
+90
+100
+200
+```
+
+Top 3 maintained.
+
+---
+
+# Approach 2: Redis ZSET
+
+Redis stores all songs.
+
+Example:
+
+```text
+songA = 1000
+songB = 800
+songC = 700
+...
+100 million songs
+```
+
+Internally:
+
+```text
+HashMap
++
+Skip List
+```
+
+Skip list remains sorted:
+
+```text
+1000
+ |
+800
+ |
+700
+ |
+500
+```
+
+Now:
+
+```redis
+ZREVRANGE top_songs 0 99
+```
+
+returns top 100 directly.
+
+No heap needed.
+
+---
+
+# Why Not Use Min Heap in Redis?
+
+Imagine:
+
+```text
+100 Million songs
+```
+
+If Redis keeps only Top 100:
+
+```text
+songA
+songB
+songC
+...
+```
+
+What happens when songX suddenly becomes popular?
+
+Current:
+
+```text
+songX = 50
+```
+
+After viral event:
+
+```text
+songX = 1,000,000
+```
+
+Redis needs the full count history.
+
+Therefore Redis stores:
+
+```text
+ALL songs
+```
+
+not just top K.
+
+---
+
+# Then Where Is Min Heap Actually Used?
+
+### Case 1: Flink Computing Top-K
+
+Suppose Flink receives:
+
+```text
+166K events/sec
+```
+
+For a 1-hour window:
+
+```text
+100 million songs
+```
+
+After aggregation:
+
+```text
+songA = 10000
+songB = 5000
+...
+```
+
+To find top 100:
+
+```java
+PriorityQueue<SongCount>
+```
+
+(Min Heap)
+
+is very common.
+
+Because:
+
+```text
+O(N log K)
+```
+
+instead of:
+
+```text
+O(N log N)
+```
+
+---
+
+### Case 2: Google Search Top Queries
+
+```text
+top 100 searches
+```
+
+Heap.
+
+---
+
+### Case 3: YouTube Trending
+
+```text
+top 100 videos
+```
+
+Heap.
+
+---
+
+### Case 4: Streaming Analytics
+
+Flink operators often maintain:
+
+```text
+State
+   +
+Priority Queue (Min Heap)
+```
+
+for Top-K windows.
+
+---
+
+# In Spotify HLD, What Happens?
+
+A realistic flow is:
+
+```text
+Kafka
+   |
+   v
+Flink
+```
+
+Flink counts:
+
+```text
+songA = 10000
+songB = 5000
+songC = 3000
+```
+
+Then Flink maintains:
+
+```text
+Top100 Heap
+```
+
+Result:
+
+```text
+Top100 songs
+```
+
+Then writes final leaderboard to:
+
+```text
+Redis ZSET
+```
+
+or
+
+```text
+Redis Hash
+```
+
+for serving.
+
+---
+
+# Why Use Redis If Flink Already Has Top-K?
+
+Because Flink is a compute engine.
+
+You don't want millions of users asking:
+
+```text
+Give me Top 100 songs
+```
+
+from Flink.
+
+Instead:
+
+```text
+Flink
+  |
+  v
+Redis
+```
+
+Redis acts as a cache/read layer.
+
+---
+
+# What do large companies typically do?
+
+A common production pattern is:
+
+```text
+Kafka
+   |
+   v
+Flink
+   |
+   +--> Min Heap / Top-K State
+   |
+   +--> Redis Leaderboard
+   |
+   +--> Data Lake
+```
+
+So:
+
+* **Min Heap** = computation algorithm for finding Top-K efficiently.
+* **Redis ZSET** = storage/query layer for serving Top-K to users.
+* **Redis itself does not use Min Heap internally**; it uses a **Skip List + Hash Table** implementation.
+
+
 <img width="654" height="381" alt="image" src="https://github.com/user-attachments/assets/ba6d0d4a-f29d-424f-b67b-9396e5e91fef" />
 
 A Redis Sorted Set (ZSET) stores data like:
