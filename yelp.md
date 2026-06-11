@@ -1,3 +1,1218 @@
+A **Yelp HLD (High-Level Design)** interview question is essentially:
+
+
+If you're a beginner, don't start with Kafka, CDC, PostGIS, sharding, ML recommendations, etc. Interviewers usually want to see that you can build a working system first and then scale it.
+
+---
+
+# Step 1: Understand Yelp
+
+Yelp is basically:
+
+```text
+Search Businesses
+     +
+View Business Details
+     +
+Add Reviews
+     +
+Ratings
+```
+
+Example:
+
+```text
+User searches:
+"Pizza near me"
+
+Results:
+Pizza Hut
+Domino's
+La Pino'z
+```
+
+User clicks:
+
+```text
+Business Details
+Reviews
+Photos
+Ratings
+```
+
+---
+
+# Step 2: Functional Requirements
+
+### Must Have
+
+1. Search businesses
+2. Search nearby businesses
+3. View business details
+4. Add reviews
+5. Add ratings
+
+### Nice To Have
+
+1. Photos
+2. Recommendations
+3. Bookmarks
+
+Ignore these initially.
+
+---
+
+# Step 3: Basic APIs
+
+### Search
+
+```http
+GET /search?q=pizza
+```
+
+Response:
+
+```json
+[
+  {
+    "id": 1,
+    "name": "Pizza Hut"
+  }
+]
+```
+
+---
+
+### Business Details
+
+```http
+GET /business/1
+```
+
+Response:
+
+```json
+{
+  "id":1,
+  "name":"Pizza Hut",
+  "rating":4.5
+}
+```
+
+---
+
+### Add Review
+
+```http
+POST /review
+```
+
+```json
+{
+  "businessId":1,
+  "rating":5,
+  "comment":"Great food"
+}
+```
+
+---
+
+# Step 4: Database Design
+
+### Business Table
+
+```sql
+Business
+----------
+business_id
+name
+category
+address
+latitude
+longitude
+rating
+```
+
+Example:
+
+```text
+1 | Pizza Hut | Pizza
+2 | Domino's  | Pizza
+```
+
+---
+
+### User Table
+
+```sql
+User
+------
+user_id
+name
+email
+```
+
+---
+
+### Review Table
+
+```sql
+Review
+---------
+review_id
+business_id
+user_id
+rating
+comment
+created_at
+```
+
+Relationship:
+
+```text
+User
+  |
+  | writes
+  v
+Review
+  |
+  | belongs to
+  v
+Business
+```
+
+---
+
+# Step 5: Simple Architecture
+
+```text
+          User
+            |
+            v
+        Load Balancer
+            |
+            v
+        API Server
+            |
+     ----------------
+     |              |
+     v              v
+ Business DB    Review DB
+```
+
+As a beginner, this architecture is enough.
+
+---
+
+# Step 6: Search Problem
+
+Suppose user searches:
+
+```text
+pizza
+```
+
+If we use SQL:
+
+```sql
+SELECT *
+FROM business
+WHERE name LIKE '%pizza%'
+```
+
+Works for small systems.
+
+But when businesses become millions:
+
+```text
+Slow
+No ranking
+No typo support
+```
+
+---
+
+# Step 7: Add Elasticsearch
+
+Now introduce Elasticsearch.
+
+Architecture:
+
+```text
+            User
+              |
+              v
+        Search Service
+              |
+              v
+       Elasticsearch
+              |
+              v
+         PostgreSQL
+```
+
+---
+
+Why Elasticsearch?
+
+Because it supports:
+
+```text
+Fast Search
+Autocomplete
+Typos
+Ranking
+```
+
+Example:
+
+User types:
+
+```text
+piza
+```
+
+Still finds:
+
+```text
+Pizza Hut
+```
+
+---
+
+# Step 8: Geo Search
+
+Now user says:
+
+```text
+Pizza near me
+```
+
+Business record:
+
+```json
+{
+  "name":"Pizza Hut",
+  "lat":28.61,
+  "lon":77.20
+}
+```
+
+User location:
+
+```text
+28.60
+77.19
+```
+
+Elasticsearch can find:
+
+```text
+Businesses within 5 km
+```
+
+This is called:
+
+```text
+Geo Search
+```
+
+---
+
+# Step 9: Ranking
+
+Imagine:
+
+```text
+Restaurant A
+Distance = 100m
+Rating = 1.0
+```
+
+and
+
+```text
+Restaurant B
+Distance = 500m
+Rating = 4.9
+```
+
+Distance alone is not enough.
+
+So rank using:
+
+```text
+Score =
+Rating
++
+Distance
++
+Popularity
+```
+
+Results become better.
+
+---
+
+# Step 10: Reviews
+
+When user adds review:
+
+```text
+5 stars
+Amazing Pizza
+```
+
+Store in:
+
+```text
+Review Table
+```
+
+Update:
+
+```text
+Business Rating
+```
+
+Example:
+
+```text
+Old Rating = 4.4
+
+New Review = 5
+
+Updated Rating = 4.5
+```
+
+---
+
+# Step 11: Add Redis Cache
+
+Frequently viewed businesses:
+
+```text
+Pizza Hut
+Domino's
+Starbucks
+```
+
+Store in cache.
+
+Architecture:
+
+```text
+         User
+           |
+           v
+      API Server
+           |
+      Redis Cache
+           |
+       Miss?
+           |
+           v
+      PostgreSQL
+```
+
+Benefits:
+
+```text
+Faster Response
+Lower DB Load
+```
+
+---
+
+# Step 12: Scaling Discussion
+
+If interviewer asks:
+
+> How would you scale?
+
+You can say:
+
+### Database
+
+```text
+Primary DB
+    |
+Read Replicas
+```
+
+Reads go to replicas.
+
+---
+
+### Search
+
+```text
+Elasticsearch
+   |
+ Shards
+```
+
+Split data across multiple servers.
+
+---
+
+### Cache
+
+```text
+Redis Cluster
+```
+
+Multiple Redis nodes.
+
+---
+
+# Beginner-Level Final Architecture
+
+```text
+                Users
+                  |
+             Load Balancer
+                  |
+            API Servers
+                  |
+      -----------------------
+      |                     |
+      v                     v
+     Redis           Elasticsearch
+      |                     |
+      |                     |
+      ------PostgreSQL------
+            |
+         Reviews
+```
+
+### How to explain this in an interview
+
+1. Store businesses and reviews in PostgreSQL.
+2. Use Elasticsearch for text search and geo search.
+3. Use Redis to cache popular businesses.
+4. Use ratings and distance to rank results.
+5. Scale PostgreSQL with read replicas and Elasticsearch with shards.
+
+For a beginner or mid-level interview, this design is usually sufficient before diving into Kafka, CDC, geohashes, PostGIS, or recommendation systems.
+
+
+> Design a system where users can search nearby businesses (restaurants, cafes, salons, hospitals, etc.), view details, ratings, reviews, photos, and receive geo-based recommendations.
+
+This combines:
+
+* Geo-spatial search
+* Full-text search
+* Reviews
+* Ranking
+* Caching
+* Search indexing
+
+---
+
+# 1. Requirements Gathering
+
+### Functional Requirements
+
+Users should be able to:
+
+1. Search nearby businesses
+2. Search by text
+
+```text
+Pizza near me
+Best cafe in Delhi
+Gym near airport
+```
+
+3. View business details
+4. Add reviews
+5. Add ratings
+6. Upload photos
+7. Sort by:
+
+   * Distance
+   * Rating
+   * Popularity
+
+---
+
+### Non-Functional Requirements
+
+* Low latency (<100ms search)
+* High availability
+* Eventual consistency acceptable
+* Geo search support
+* Scale to millions of businesses
+
+---
+
+# 2. Capacity Estimation
+
+Assume:
+
+```text
+100M users
+20M businesses
+1B reviews
+```
+
+Search traffic:
+
+```text
+50K searches/sec
+```
+
+Review traffic:
+
+```text
+5K writes/sec
+```
+
+Searches greatly exceed writes.
+
+Therefore:
+
+```text
+Read Heavy System
+```
+
+---
+
+# 3. Core APIs
+
+### Search API
+
+```http
+GET /search
+```
+
+Request:
+
+```json
+{
+  "query":"pizza",
+  "lat":28.61,
+  "lon":77.20,
+  "radius":"5km"
+}
+```
+
+---
+
+### Business Details
+
+```http
+GET /business/{id}
+```
+
+---
+
+### Add Review
+
+```http
+POST /review
+```
+
+```json
+{
+  "businessId":123,
+  "rating":5,
+  "comment":"Amazing food"
+}
+```
+
+---
+
+# 4. Database Design
+
+## Business Table
+
+```sql
+Business
+---------
+business_id
+name
+category
+address
+latitude
+longitude
+avg_rating
+review_count
+```
+
+---
+
+## Review Table
+
+```sql
+Review
+--------
+review_id
+business_id
+user_id
+rating
+comment
+created_at
+```
+
+---
+
+## User Table
+
+```sql
+User
+------
+user_id
+name
+```
+
+---
+
+# Why Not Search Directly in MySQL?
+
+Query:
+
+```sql
+SELECT *
+FROM business
+WHERE category='pizza'
+AND distance < 5km
+```
+
+For 20M businesses this becomes expensive.
+
+Need specialized search engine.
+
+---
+
+# 5. High-Level Architecture
+
+```text
+                User
+                  |
+                  v
+            Load Balancer
+                  |
+        -------------------
+        |                 |
+        v                 v
+   Search Service   Review Service
+        |
+        v
+ Elasticsearch
+        |
+        v
+ PostgreSQL
+```
+
+---
+
+# 6. Search Architecture
+
+This is the most important part.
+
+Search requires:
+
+```text
+Geo Search
++
+Text Search
+```
+
+Example:
+
+```text
+best pizza near me
+```
+
+Need:
+
+```text
+pizza     -> text filter
+near me   -> geo filter
+```
+
+Elasticsearch is ideal.
+
+---
+
+## Elasticsearch Document
+
+```json
+{
+  "businessId":123,
+  "name":"Dominos Pizza",
+  "category":"Pizza",
+  "rating":4.5,
+  "location":{
+     "lat":28.61,
+     "lon":77.20
+  }
+}
+```
+
+---
+
+# 7. Geo Search
+
+User:
+
+```text
+lat=28.61
+lon=77.20
+radius=5km
+```
+
+ES query:
+
+```json
+{
+  "geo_distance": {
+      "distance":"5km"
+  }
+}
+```
+
+Returns only nearby businesses.
+
+---
+
+# 8. Text Search
+
+Query:
+
+```text
+pizza
+```
+
+ES performs:
+
+```text
+Tokenization
+Stemming
+BM25 Ranking
+Fuzzy Search
+```
+
+Examples:
+
+```text
+pizza
+piza
+pizzza
+```
+
+still work.
+
+---
+
+# 9. Geo + Text Search
+
+Combined query:
+
+```text
+Find pizza shops
+within 5km
+```
+
+ES:
+
+```text
+Text Match
+AND
+Geo Filter
+```
+
+Result:
+
+```text
+Pizza Hut
+Dominos
+La Pinoz
+```
+
+---
+
+# 10. Ranking
+
+Businesses should not be sorted only by distance.
+
+Bad:
+
+```text
+200m away
+Rating 1.5
+```
+
+should not beat
+
+```text
+500m away
+Rating 4.9
+```
+
+Ranking score:
+
+```text
+Final Score =
+Text Relevance
++ Rating Score
++ Popularity
++ Distance Score
+```
+
+Example:
+
+```text
+Score =
+0.4 * BM25
++0.3 * Rating
++0.2 * Reviews
++0.1 * Distance
+```
+
+---
+
+# 11. Review Service
+
+User adds review:
+
+```text
+5 stars
+Amazing pizza
+```
+
+Flow:
+
+```text
+User
+ |
+ v
+Review Service
+ |
+ v
+PostgreSQL
+```
+
+---
+
+# 12. Review Aggregation
+
+Avoid:
+
+```sql
+AVG(rating)
+```
+
+over millions of reviews every request.
+
+Store precomputed values:
+
+```sql
+avg_rating
+review_count
+```
+
+inside Business table.
+
+Update asynchronously.
+
+---
+
+# 13. CDC Pipeline
+
+Whenever a review is added:
+
+```text
+PostgreSQL
+     |
+     v
+   CDC
+     |
+     v
+   Kafka
+```
+
+Consumers update:
+
+```text
+Elasticsearch
+Analytics
+Cache
+```
+
+Common stack:
+
+```text
+PostgreSQL
+     |
+Debezium
+     |
+Kafka
+```
+
+---
+
+# 14. Elasticsearch Sync
+
+```text
+Business Updated
+      |
+      v
+PostgreSQL
+      |
+      v
+CDC
+      |
+      v
+Kafka
+      |
+      v
+Elasticsearch Consumer
+```
+
+Keeps search index updated.
+
+---
+
+# 15. Caching Layer
+
+Frequently viewed businesses:
+
+```text
+Starbucks
+Dominos
+McDonalds
+```
+
+stored in:
+
+Redis
+
+```text
+Business Cache
+Review Cache
+Search Cache
+```
+
+---
+
+# 16. Geo-Spatial Indexing
+
+For extremely large scale:
+
+```text
+20M+
+businesses
+```
+
+Use:
+
+### Geohash
+
+Earth divided into cells.
+
+```text
+9q8
+9q9
+9qb
+```
+
+Nearby locations fall into similar cells.
+
+---
+
+### S2 Cells
+
+Used by:
+
+Google
+
+More accurate spherical partitioning.
+
+---
+
+# 17. Photo Storage
+
+Never store photos in DB.
+
+Store in object storage.
+
+```text
+User Upload
+      |
+      v
+Object Storage (S3)
+      |
+      v
+CDN
+```
+
+Possible choice:
+
+Amazon Web Services object storage service.
+
+---
+
+# 18. Scaling
+
+### Database
+
+```text
+Primary
+   |
+Replicas
+```
+
+Reads:
+
+```text
+Business details
+Reviews
+```
+
+go to replicas.
+
+---
+
+### Elasticsearch
+
+```text
+Index
+  |
+Shards
+```
+
+Example:
+
+```text
+20 shards
+3 replicas
+```
+
+---
+
+# 19. End-to-End Search Flow
+
+```text
+User searches:
+"pizza near me"
+
+       |
+       v
+Search API
+       |
+       v
+Redis Cache
+       |
+ cache miss
+       |
+       v
+Elasticsearch
+   (geo + text)
+       |
+ business IDs
+       |
+       v
+Business Service
+       |
+ PostgreSQL/Cache
+       |
+       v
+Results
+```
+
+---
+
+# Follow-Up Questions Interviewers Ask
+
+### Why Elasticsearch over PostgreSQL?
+
+Answer:
+
+```text
+Full-text search
+Geo filtering
+Ranking
+Autocomplete
+Fuzzy matching
+```
+
+---
+
+### Why CDC?
+
+Answer:
+
+```text
+Keep Elasticsearch and cache
+synchronized with database
+without application coupling.
+```
+
+---
+
+### Why Redis?
+
+Answer:
+
+```text
+Popular business details
+review counts
+hot searches
+```
+
+---
+
+### PostGIS vs Elasticsearch?
+
+Answer:
+
+```text
+PostGIS:
+Spatial computation
+
+Elasticsearch:
+Geo + text search
+```
+
+---
+
+# Final Production Architecture
+
+```text
+                 Users
+                    |
+             API Gateway
+                    |
+      --------------------------------
+      |                              |
+      v                              v
+ Search Service              Review Service
+      |                              |
+      v                              v
+ Elasticsearch              PostgreSQL
+      |                              |
+      |                        Debezium CDC
+      |                              |
+      |                              v
+      |                            Kafka
+      |                              |
+      |------------------------------|
+                     |
+                     v
+                  Consumers
+                     |
+        ----------------------------
+        |            |             |
+        v            v             v
+ Elasticsearch    Redis      Analytics
+```
+
+This design demonstrates most of the concepts interviewers look for in Yelp-style systems: **geo-search, Elasticsearch, PostGIS/geospatial concepts, Redis caching, Kafka, CDC, ranking, sharding, replication, and eventual consistency.**
+
+
 Elasticsearch is very powerful for **Geo + Text filtering** because it combines:
 
 1. **Full-text search capabilities** (BM25 scoring, fuzzy matching, stemming)
