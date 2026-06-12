@@ -1,3 +1,7 @@
+https://medium.com/@jyoti1308/designing-proximity-service-yelp-7472e1f20cee
+
+https://systemdesignschool.io/problems/yelp/solution?utm_source=neetcode
+
 A **Yelp HLD (High-Level Design)** interview question is essentially:
 
 
