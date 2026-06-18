@@ -8,6 +8,8 @@ https://youtu.be/-eMtcFqj8vI  -  also see googledocs.md in same repo
 
 https://systemdesignschool.io/problems/pastebin/solution?utm_source=neetcode
 
+https://systemdesignschool.io/problems/rate-limiter/solution?utm_source=neetcode
+
 A URL shortener generates a unique short URL by combining **ID generation + encoding + collision handling + database mapping**.
 
 Typical flow:
