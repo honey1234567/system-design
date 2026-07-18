@@ -2994,3 +2994,547 @@ A strong answer is:
 ### One subtle interview insight
 
 Many candidates think **Redis locks alone guarantee correctness**. They don't. Redis helps coordinate concurrent requests across application servers, but the **database must still enforce consistency** (through transactions, unique constraints, version checks, or row locking). The safest production systems combine these techniques rather than relying on a single mechanism.
+
+Below is the **beginner-friendly version** of the Ticketmaster system design from System Design School. I'll explain it as if you've never designed a large-scale system before. The core idea of the design is to **separate read operations (searching) from write operations (booking)** and make booking safe so that one seat is never sold twice. ([System Design School][1])
+
+---
+
+# Step 1: What is Ticketmaster?
+
+Ticketmaster is simply an online ticket booking platform.
+
+Users can:
+
+* Search events
+* View seats
+* Reserve seats
+* Pay
+* Get tickets
+
+The difficult part is **booking**, not searching.
+
+---
+
+# Step 2: What is the biggest problem?
+
+Suppose there is only **one seat left**.
+
+```text
+Seat A1
+
+Available
+```
+
+At exactly 10:00 AM
+
+```text
+User A clicks Book
+
+        AND
+
+User B clicks Book
+```
+
+Only one should get the seat.
+
+This is the main system design challenge.
+
+---
+
+# Step 3: High-Level Architecture
+
+```text
+                Users
+                   |
+            Load Balancer
+                   |
+             API Gateway
+                   |
+      --------------------------
+      |          |             |
+ Search Service Booking Service Payment Service
+      |          |             |
+    Cache     Message Queue    Payment Gateway
+      |          |
+   Database   Seat Database
+```
+
+Each service has one job.
+
+---
+
+# Step 4: Search Flow (Read Path)
+
+Searching is simple because users only **read** data.
+
+```text
+User
+
+↓
+
+Search "Coldplay"
+
+↓
+
+Search Service
+
+↓
+
+Cache
+
+↓
+
+Database
+
+↓
+
+Show Events
+```
+
+### Why cache?
+
+Imagine 1 million people searching the same concert.
+
+Without cache
+
+```text
+Everyone
+
+↓
+
+Database
+```
+
+Database becomes slow.
+
+Instead
+
+```text
+Users
+
+↓
+
+Redis Cache
+
+↓
+
+Database (only if needed)
+```
+
+Cache is much faster.
+
+---
+
+# Step 5: Booking Flow (Write Path)
+
+Booking changes data, so it is harder.
+
+```text
+User
+
+↓
+
+Click Book
+
+↓
+
+Booking Service
+
+↓
+
+Message Queue
+
+↓
+
+Booking Consumer
+
+↓
+
+Database
+
+↓
+
+Payment
+
+↓
+
+Ticket
+```
+
+Notice that booking requests first go to a **queue** instead of directly to the database. ([System Design School][1])
+
+---
+
+# Step 6: Why use a Queue?
+
+Imagine booking opens.
+
+```text
+10 Million Users
+
+↓
+
+Book Now
+```
+
+Without a queue
+
+```text
+10 Million Requests
+
+↓
+
+Database
+```
+
+The database crashes.
+
+Instead
+
+```text
+10 Million Requests
+
+↓
+
+Queue
+
+↓
+
+Process One by One
+
+↓
+
+Database
+```
+
+The queue acts like people waiting in line at a ticket counter.
+
+---
+
+# Step 7: What does the Queue solve?
+
+Suppose three users want Seat A1.
+
+Without queue
+
+```text
+A
+
+B
+
+C
+
+↓
+
+Database Together
+```
+
+Chaos.
+
+With queue
+
+```text
+Queue
+
+↓
+
+A
+
+↓
+
+B
+
+↓
+
+C
+```
+
+Now requests are processed in order.
+
+---
+
+# Step 8: Seat Reservation
+
+Don't directly mark the seat as booked.
+
+Instead
+
+```text
+Available
+
+↓
+
+Reserved
+
+↓
+
+Booked
+```
+
+Example
+
+```text
+You clicked Book.
+
+↓
+
+Seat Reserved
+
+↓
+
+You have 5 minutes
+
+↓
+
+Pay
+```
+
+If payment succeeds
+
+```text
+Reserved
+
+↓
+
+Booked
+```
+
+If payment fails
+
+```text
+Reserved
+
+↓
+
+Available Again
+```
+
+This is called a **temporary hold**.
+
+---
+
+# Step 9: Why both Cache and Database?
+
+The design updates both.
+
+```text
+Booking
+
+↓
+
+Cache
+
+↓
+
+Database
+```
+
+Why?
+
+### Cache
+
+Fast.
+
+Shows latest seat status quickly.
+
+### Database
+
+Permanent storage.
+
+Source of truth.
+
+If the cache crashes,
+
+the database still has the correct booking information. ([System Design School][1])
+
+---
+
+# Step 10: Payment Flow
+
+```text
+Reserve Seat
+
+↓
+
+Payment Service
+
+↓
+
+Stripe / Razorpay
+
+↓
+
+Payment Success
+
+↓
+
+Booking Confirmed
+
+↓
+
+Ticket Generated
+```
+
+If payment fails
+
+```text
+Release Seat
+
+↓
+
+Available Again
+```
+
+---
+
+# Step 11: Why use a Message Queue after Payment?
+
+Some work can happen later.
+
+```text
+Booking Done
+
+↓
+
+Queue
+
+↓
+
+Email
+
+↓
+
+SMS
+
+↓
+
+Analytics
+```
+
+The user gets a fast response while background tasks continue asynchronously.
+
+---
+
+# Step 12: Why separate Search and Booking?
+
+Think of a shopping mall.
+
+**Search Service**
+
+Like asking,
+
+> "Where is Store 5?"
+
+Just gives information.
+
+**Booking Service**
+
+Like buying the product.
+
+Actually changes inventory.
+
+Separating them allows each service to scale independently.
+
+---
+
+# Step 13: Complete User Journey
+
+```text
+User
+
+↓
+
+Search Concert
+
+↓
+
+Search Service
+
+↓
+
+Select Seat
+
+↓
+
+Booking Service
+
+↓
+
+Queue
+
+↓
+
+Reserve Seat
+
+↓
+
+Payment
+
+↓
+
+Booking Confirmed
+
+↓
+
+Email Ticket
+```
+
+---
+
+# Step 14: Simple Analogy
+
+Imagine a restaurant.
+
+```text
+Customers
+
+↓
+
+Receptionist
+
+↓
+
+Waiting Line
+
+↓
+
+Table
+
+↓
+
+Payment
+
+↓
+
+Receipt
+```
+
+In Ticketmaster:
+
+| Restaurant   | Ticketmaster    |
+| ------------ | --------------- |
+| Receptionist | Booking Service |
+| Waiting Line | Message Queue   |
+| Table        | Seat            |
+| Bill         | Payment         |
+| Receipt      | Ticket          |
+
+---
+
+# Beginner Interview Summary (Remember These 7 Points)
+
+1. **Search Service** → Finds events and seats.
+2. **Cache (Redis)** → Makes searching fast.
+3. **Booking Service** → Handles reservations.
+4. **Message Queue** → Processes booking requests in order and prevents the database from being overloaded.
+5. **Database** → Stores the permanent booking record.
+6. **Payment Service** → Confirms payment before final booking.
+7. **Seat states** → `Available → Reserved → Booked` (or `Reserved → Available` if payment fails).
+
+---
+
+## The one sentence interview answer
+
+> "Ticketmaster separates searching from booking. Search requests are served quickly using a cache, while booking requests go through a queue, temporarily reserve the seat, complete payment, and then permanently book it in the database. This design prevents double booking and allows the system to handle millions of users during flash sales." ([System Design School][1])
+
+[1]: https://systemdesignschool.io/problems/ticketmaster/solution?utm_source=chatgpt.com "Design Ticketmaster: A Comprehensive Guide"
