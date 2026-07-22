@@ -16,6 +16,10 @@ https://systemdesignschool.io/problems/comment-system/solution?utm_source=neetco
 
 https://systemdesignschool.io/problems/dropbox/solution?utm_source=neetcode
 
+uber - copy hld
+
+Google map - https://systemdesignschool.io/problems/google-map/solution
+
 A URL shortener generates a unique short URL by combining **ID generation + encoding + collision handling + database mapping**.
 
 Typical flow:
